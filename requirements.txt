@@ -1,4 +1,4 @@
-pyautogen>=0.2.0
+pyautogen>=0.2.0,<0.3.0
 openai>=1.0.0
 tiktoken>=0.5.0
 colorama>=0.4.6
