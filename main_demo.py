@@ -32,7 +32,7 @@ def check_config():
         return False
 
     try:
-        with open(config_path, 'r') as f:
+        with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
 
         if config.get('api_key') == 'your-openai-api-key-here':
@@ -105,7 +105,7 @@ def run_demo(demo_number):
         print("=" * 80 + "\n")
 
         # Execute the demo
-        with open(demo_path, 'r') as f:
+        with open(demo_path, 'r', encoding='utf-8') as f:
             code = f.read()
             exec(code, {'__name__': '__main__'})
 

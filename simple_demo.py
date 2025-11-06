@@ -25,7 +25,7 @@ from colorama import Fore, Style
 def load_config():
     """Load configuration."""
     config_path = "config.json"
-    with open(config_path, 'r') as f:
+    with open(config_path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
 

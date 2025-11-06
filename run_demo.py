@@ -4,14 +4,21 @@ Non-interactive version for easy demonstration
 """
 
 import json
+import sys
+import io
 from openai import OpenAI
 from utils import *
 from colorama import Fore, Style
 import time
 
+# Fix Windows console encoding issues
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
 
 def load_config():
-    with open("config.json", 'r') as f:
+    with open("config.json", 'r', encoding='utf-8') as f:
         return json.load(f)
 
 
