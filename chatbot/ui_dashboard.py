@@ -377,9 +377,60 @@ def get_dashboard_html() -> str:
     </main>
 
     <script>
-        let sessionId = 'session_' + Date.now();
+        // Persist session ID in localStorage
+        let sessionId = localStorage.getItem('chatSessionId');
+        if (!sessionId) {
+            sessionId = 'session_' + Date.now();
+            localStorage.setItem('chatSessionId', sessionId);
+        }
         let isLoading = false;
-        let queryCount = 0;
+        let queryCount = parseInt(localStorage.getItem('queryCount') || '0');
+
+        // Load chat history on page load
+        document.addEventListener('DOMContentLoaded', async function() {
+            document.getElementById('queryCount').textContent = queryCount;
+            await loadChatHistory();
+        });
+
+        async function loadChatHistory() {
+            try {
+                const response = await fetch(`/api/conversation/${sessionId}`);
+                const history = await response.json();
+                if (history && history.length > 0) {
+                    // Clear welcome message
+                    document.getElementById('chatMessages').innerHTML = '';
+                    // Load history
+                    history.forEach(msg => {
+                        if (msg.role === 'user') {
+                            addMessageWithTime(msg.content, 'user', '👤', 'You', msg.timestamp);
+                        } else if (msg.role === 'assistant') {
+                            addMessageWithTime(msg.content, 'assistant', '🤖', msg.agent_id || 'Assistant', msg.timestamp);
+                        }
+                    });
+                    addActivity('Chat history loaded', 'success');
+                }
+            } catch (error) {
+                console.log('No previous history or error loading:', error);
+            }
+        }
+
+        function addMessageWithTime(content, role, icon, agentName, timestamp) {
+            const container = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+            const parsedContent = role === 'assistant' ? marked.parse(content) : content;
+            const time = timestamp ? new Date(timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Earlier';
+            messageDiv.innerHTML = `
+                <div class="message-avatar">${role === 'user' ? '👤' : icon || '🤖'}</div>
+                <div class="message-content">
+                    ${parsedContent}
+                    <div class="message-meta">${agentName} • ${time}</div>
+                </div>
+            `;
+            container.appendChild(messageDiv);
+            container.scrollTop = container.scrollHeight;
+            messageDiv.querySelectorAll('pre code').forEach(block => hljs.highlightBlock(block));
+        }
 
         function handleKeyDown(event) {
             if (event.key === 'Enter' && !event.shiftKey) {
@@ -399,6 +450,7 @@ def get_dashboard_html() -> str:
             showTyping();
             queryCount++;
             document.getElementById('queryCount').textContent = queryCount;
+            localStorage.setItem('queryCount', queryCount);
 
             try {
                 const response = await fetch('/api/chat', {
@@ -496,16 +548,22 @@ def get_dashboard_html() -> str:
         async function clearChat() {
             try {
                 await fetch(`/api/conversation/${sessionId}`, { method: 'DELETE' });
+                // Create new session
                 sessionId = 'session_' + Date.now();
+                localStorage.setItem('chatSessionId', sessionId);
+                queryCount = 0;
+                localStorage.setItem('queryCount', '0');
+                document.getElementById('queryCount').textContent = '0';
                 document.getElementById('chatMessages').innerHTML = `
                     <div class="message assistant">
                         <div class="message-avatar">🤖</div>
                         <div class="message-content">
-                            Chat cleared. How can I help you today?
+                            <strong>Chat cleared!</strong> How can I help you today?
                             <div class="message-meta">Just now</div>
                         </div>
                     </div>
                 `;
+                addActivity('Chat cleared', 'success');
             } catch (error) {
                 console.error('Failed to clear chat:', error);
             }
