@@ -72,8 +72,8 @@ def get_dashboard_html() -> str:
         /* Main Content */
         .main-content { margin-left: var(--sidebar-width); margin-top: var(--header-height); padding: 24px; min-height: calc(100vh - var(--header-height)); }
 
-        /* Grid Layout */
-        .detail-grid { display: grid; grid-template-columns: 1fr 400px; gap: 24px; }
+        /* Grid Layout - Full Width */
+        .detail-grid { display: grid; grid-template-columns: 1fr; gap: 24px; }
 
         /* Card */
         .card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; margin-bottom: 24px; }
@@ -89,8 +89,8 @@ def get_dashboard_html() -> str:
         .ai-panel-header h3 { font-size: 16px; font-weight: 600; }
         .ai-panel-header p { font-size: 11px; opacity: 0.7; }
 
-        /* Chat Messages */
-        .chat-messages { max-height: 500px; overflow-y: auto; margin-bottom: 16px; padding-right: 8px; }
+        /* Chat Messages - Full Height */
+        .chat-messages { max-height: calc(100vh - 450px); min-height: 400px; overflow-y: auto; margin-bottom: 16px; padding-right: 8px; }
         .chat-messages::-webkit-scrollbar { width: 6px; }
         .chat-messages::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
         .message { display: flex; gap: 12px; margin-bottom: 16px; }
@@ -106,12 +106,21 @@ def get_dashboard_html() -> str:
         .message-meta { font-size: 10px; opacity: 0.6; margin-top: 6px; }
 
         /* Chat Input */
-        .chat-input-area { display: flex; gap: 10px; }
+        .chat-input-area { display: flex; gap: 10px; align-items: flex-end; }
         .chat-input { flex: 1; padding: 14px 16px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 10px; color: #fff; font-size: 13px; outline: none; resize: none; font-family: inherit; }
         .chat-input::placeholder { color: rgba(255,255,255,0.5); }
         .chat-input:focus { border-color: var(--purple); background: rgba(255,255,255,0.15); }
-        .send-btn { width: 48px; height: 48px; border-radius: 10px; background: linear-gradient(135deg, var(--purple), var(--pink)); border: none; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; }
+        .chat-btn { width: 48px; height: 48px; border-radius: 10px; border: none; color: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; transition: all 0.2s; }
+        .send-btn { background: linear-gradient(135deg, var(--purple), var(--pink)); }
         .send-btn:hover { transform: scale(1.05); box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4); }
+        .upload-btn { background: linear-gradient(135deg, var(--primary-blue), #1d4ed8); }
+        .upload-btn:hover { transform: scale(1.05); box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4); }
+        .file-input-hidden { display: none; }
+        .uploaded-files { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+        .uploaded-file { background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.4); padding: 6px 12px; border-radius: 8px; font-size: 11px; display: flex; align-items: center; gap: 8px; }
+        .uploaded-file i { color: var(--success); }
+        .uploaded-file .remove-file { cursor: pointer; opacity: 0.7; }
+        .uploaded-file .remove-file:hover { opacity: 1; color: var(--danger); }
 
         /* Quick Actions */
         .quick-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
@@ -159,9 +168,9 @@ def get_dashboard_html() -> str:
         .activity-time { font-size: 10px; color: var(--text-secondary); }
 
         /* Responsive */
-        @media (max-width: 1400px) { .detail-grid { grid-template-columns: 1fr 360px; } .stats-grid { grid-template-columns: repeat(2, 1fr); } }
-        @media (max-width: 1200px) { .detail-grid { grid-template-columns: 1fr; } }
+        @media (max-width: 1400px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
         @media (max-width: 992px) { .sidebar { width: 60px; } .sidebar-brand, .nav-item span, .nav-badge, .nav-section-title { display: none; } .header { left: 60px; } .main-content { margin-left: 60px; } }
+        @media (max-width: 768px) { .stats-grid { grid-template-columns: 1fr; } .chat-messages { min-height: 300px; } }
     </style>
 </head>
 <body>
@@ -273,9 +282,12 @@ def get_dashboard_html() -> str:
                         </div>
                     </div>
 
+                    <div class="uploaded-files" id="uploadedFiles"></div>
                     <div class="chat-input-area">
-                        <textarea class="chat-input" id="chatInput" placeholder="Ask about DevOps, Kubernetes, Docker, AWS, CI/CD..." rows="1" onkeydown="handleKeyDown(event)"></textarea>
-                        <button class="send-btn" onclick="sendMessage()"><i class="fas fa-paper-plane"></i></button>
+                        <input type="file" id="fileInput" class="file-input-hidden" accept=".pdf,.txt,.md,.json,.yaml,.yml,.py,.js,.sh,.log,.csv,.png,.jpg,.jpeg" multiple onchange="handleFileSelect(event)">
+                        <button class="chat-btn upload-btn" onclick="document.getElementById('fileInput').click()" title="Upload files (PDF, text, images)"><i class="fas fa-paperclip"></i></button>
+                        <textarea class="chat-input" id="chatInput" placeholder="Ask about DevOps, Kubernetes, Docker, AWS, CI/CD... or upload files for analysis" rows="1" onkeydown="handleKeyDown(event)"></textarea>
+                        <button class="chat-btn send-btn" onclick="sendMessage()"><i class="fas fa-paper-plane"></i></button>
                     </div>
 
                     <div class="quick-actions">
@@ -288,91 +300,6 @@ def get_dashboard_html() -> str:
                 </div>
             </div>
 
-            <!-- Right Column -->
-            <div class="right-column">
-                <!-- Available Agents -->
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-title"><i class="fas fa-robot"></i> Available Agents</span>
-                    </div>
-                    <div class="card-body">
-                        <div class="agent-list" id="agentList">
-                            <div class="agent-item" onclick="selectAgent('kubernetes')">
-                                <div class="agent-item-icon">☸️</div>
-                                <div class="agent-item-info">
-                                    <div class="agent-item-name">Kubernetes</div>
-                                    <div class="agent-item-status">Ready</div>
-                                </div>
-                            </div>
-                            <div class="agent-item" onclick="selectAgent('docker')">
-                                <div class="agent-item-icon">🐳</div>
-                                <div class="agent-item-info">
-                                    <div class="agent-item-name">Docker</div>
-                                    <div class="agent-item-status">Ready</div>
-                                </div>
-                            </div>
-                            <div class="agent-item" onclick="selectAgent('prometheus')">
-                                <div class="agent-item-icon">📊</div>
-                                <div class="agent-item-info">
-                                    <div class="agent-item-name">Prometheus</div>
-                                    <div class="agent-item-status">Ready</div>
-                                </div>
-                            </div>
-                            <div class="agent-item" onclick="selectAgent('aws')">
-                                <div class="agent-item-icon">☁️</div>
-                                <div class="agent-item-info">
-                                    <div class="agent-item-name">AWS Cloud</div>
-                                    <div class="agent-item-status">Ready</div>
-                                </div>
-                            </div>
-                            <div class="agent-item" onclick="selectAgent('terraform')">
-                                <div class="agent-item-icon">🔧</div>
-                                <div class="agent-item-info">
-                                    <div class="agent-item-name">Terraform</div>
-                                    <div class="agent-item-status">Ready</div>
-                                </div>
-                            </div>
-                            <div class="agent-item" onclick="selectAgent('jenkins')">
-                                <div class="agent-item-icon">⚙️</div>
-                                <div class="agent-item-info">
-                                    <div class="agent-item-name">Jenkins CI/CD</div>
-                                    <div class="agent-item-status">Ready</div>
-                                </div>
-                            </div>
-                            <div class="agent-item" onclick="selectAgent('grafana')">
-                                <div class="agent-item-icon">📈</div>
-                                <div class="agent-item-info">
-                                    <div class="agent-item-name">Grafana</div>
-                                    <div class="agent-item-status">Ready</div>
-                                </div>
-                            </div>
-                            <div class="agent-item" onclick="selectAgent('vmware')">
-                                <div class="agent-item-icon">🖥️</div>
-                                <div class="agent-item-info">
-                                    <div class="agent-item-name">VMware</div>
-                                    <div class="agent-item-status">Ready</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Recent Activity -->
-                <div class="card">
-                    <div class="card-header">
-                        <span class="card-title"><i class="fas fa-history"></i> Recent Activity</span>
-                    </div>
-                    <div class="card-body" id="recentActivity">
-                        <div class="activity-item">
-                            <div class="activity-icon success"><i class="fas fa-check"></i></div>
-                            <div class="activity-content">
-                                <div class="activity-title">System initialized</div>
-                                <div class="activity-time">Just now</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
     </main>
 
@@ -385,6 +312,7 @@ def get_dashboard_html() -> str:
         }
         let isLoading = false;
         let queryCount = parseInt(localStorage.getItem('queryCount') || '0');
+        let uploadedFiles = [];
 
         // Load chat history on page load
         document.addEventListener('DOMContentLoaded', async function() {
@@ -508,8 +436,6 @@ def get_dashboard_html() -> str:
         }
 
         function selectAgent(agent) {
-            document.querySelectorAll('.agent-item').forEach(el => el.classList.remove('active'));
-            event.currentTarget.classList.add('active');
             const queries = {
                 'kubernetes': 'Help me with Kubernetes best practices',
                 'docker': 'Create a Docker container setup',
@@ -518,7 +444,9 @@ def get_dashboard_html() -> str:
                 'terraform': 'Create Terraform infrastructure',
                 'jenkins': 'Setup Jenkins pipeline',
                 'grafana': 'Configure Grafana dashboard',
-                'vmware': 'VMware vSphere administration'
+                'vmware': 'VMware vSphere administration',
+                'azure': 'Help me with Azure cloud services',
+                'networking': 'Help me with network configuration'
             };
             sendQuickQuery(queries[agent] || `Help me with ${agent}`);
         }
@@ -528,21 +456,7 @@ def get_dashboard_html() -> str:
         }
 
         function addActivity(title, type) {
-            const container = document.getElementById('recentActivity');
-            const time = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-            const activityDiv = document.createElement('div');
-            activityDiv.className = 'activity-item';
-            activityDiv.innerHTML = `
-                <div class="activity-icon ${type}"><i class="fas fa-${type === 'success' ? 'check' : 'comment'}"></i></div>
-                <div class="activity-content">
-                    <div class="activity-title">${title}</div>
-                    <div class="activity-time">${time}</div>
-                </div>
-            `;
-            container.insertBefore(activityDiv, container.firstChild);
-            if (container.children.length > 5) {
-                container.removeChild(container.lastChild);
-            }
+            console.log(`[${type.toUpperCase()}] ${title}`);
         }
 
         async function clearChat() {
@@ -573,6 +487,90 @@ def get_dashboard_html() -> str:
         document.getElementById('chatInput').addEventListener('input', function() {
             this.style.height = 'auto';
             this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+        });
+
+        // File upload handling
+        async function handleFileSelect(event) {
+            const files = Array.from(event.target.files);
+            for (const file of files) {
+                await uploadFile(file);
+            }
+            event.target.value = ''; // Reset input
+        }
+
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('session_id', sessionId);
+
+            // Show uploading indicator
+            const uploadedFilesContainer = document.getElementById('uploadedFiles');
+            const tempId = 'temp_' + Date.now();
+            const tempDiv = document.createElement('div');
+            tempDiv.className = 'uploaded-file';
+            tempDiv.id = tempId;
+            tempDiv.innerHTML = `<i class="fas fa-spinner fa-spin"></i><span>Uploading ${file.name}...</span>`;
+            uploadedFilesContainer.appendChild(tempDiv);
+
+            try {
+                const response = await fetch('/api/files/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+                const existingTemp = document.getElementById(tempId);
+
+                if (response.ok && result.status === 'success') {
+                    uploadedFiles.push({
+                        id: result.file_id,
+                        name: result.filename,
+                        type: result.file_type
+                    });
+
+                    if (existingTemp) {
+                        existingTemp.innerHTML = `
+                            <i class="fas fa-file-alt"></i>
+                            <span>${result.filename}</span>
+                            <i class="fas fa-times remove-file" onclick="removeUploadedFile(${result.file_id}, this)"></i>
+                        `;
+                    }
+                    addActivity('File uploaded: ' + result.filename, 'success');
+                } else {
+                    if (existingTemp) existingTemp.remove();
+                    addMessage('Failed to upload ' + file.name + ': ' + (result.detail || 'Unknown error'), 'assistant', '❌', 'Error');
+                }
+            } catch (error) {
+                const existingTemp = document.getElementById(tempId);
+                if (existingTemp) existingTemp.remove();
+                addMessage('Upload error: ' + error.message, 'assistant', '❌', 'Error');
+            }
+        }
+
+        function removeUploadedFile(fileId, element) {
+            uploadedFiles = uploadedFiles.filter(f => f.id !== fileId);
+            element.closest('.uploaded-file').remove();
+        }
+
+        // Drag and drop support
+        const aiPanel = document.querySelector('.ai-panel');
+        aiPanel.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            aiPanel.style.borderColor = 'var(--purple)';
+            aiPanel.style.borderStyle = 'dashed';
+        });
+        aiPanel.addEventListener('dragleave', () => {
+            aiPanel.style.borderColor = '';
+            aiPanel.style.borderStyle = '';
+        });
+        aiPanel.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            aiPanel.style.borderColor = '';
+            aiPanel.style.borderStyle = '';
+            const files = Array.from(e.dataTransfer.files);
+            for (const file of files) {
+                await uploadFile(file);
+            }
         });
     </script>
 </body>

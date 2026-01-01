@@ -1,0 +1,45 @@
+# =============================================================================
+# DOCKER COMPOSE - DevOps Multi-Agent Chatbot
+# =============================================================================
+# Usage:
+#   docker-compose up -d          # Start in background
+#   docker-compose up              # Start in foreground
+#   docker-compose down            # Stop and remove containers
+#   docker-compose logs -f         # View logs
+#   docker-compose restart         # Restart services
+# =============================================================================
+
+version: '3.8'
+
+services:
+  chatbot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: devops-chatbot
+    ports:
+      - "8000:8000"
+    environment:
+      # Override with environment variables or .env file
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - APP_HOST=0.0.0.0
+      - APP_PORT=8000
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Mount config directory (optional - for external config)
+      - ./config:/app/config:ro
+      # Mount logs directory (optional)
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - chatbot-network
+
+networks:
+  chatbot-network:
+    driver: bridge

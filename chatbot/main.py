@@ -7,6 +7,8 @@ Multi-Agent AI-powered DevOps Assistant with:
 - WebSocket real-time chat
 - Web UI
 - Tool integrations
+- PostgreSQL database for persistent storage
+- File upload support (PDF, text, images)
 
 Run: uvicorn chatbot.main:app --reload --port 8000
 ================================================================================
@@ -16,14 +18,20 @@ import os
 import sys
 import json
 import asyncio
+import uuid
+import logging
 from datetime import datetime
 from typing import Optional, Dict, List, Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request, Query, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -35,6 +43,27 @@ from agents.devops_agents import (
     get_all_agent_names,
     get_agents_by_category
 )
+
+# Database imports (with fallback for missing dependencies)
+try:
+    from database import DatabaseManager, ChatRepository, FileRepository, HostRepository
+    DATABASE_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Database module not available: {e}")
+    DATABASE_AVAILABLE = False
+    DatabaseManager = None
+    ChatRepository = None
+    FileRepository = None
+    HostRepository = None
+
+# File loader imports
+try:
+    from file_loader import FileProcessor
+    FILE_LOADER_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"File loader module not available: {e}")
+    FILE_LOADER_AVAILABLE = False
+    FileProcessor = None
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -59,6 +88,8 @@ class ChatState:
         self.agent_instances: Dict[str, Any] = {}
         self.config = self._load_config()
         self._init_agents()
+        self._init_database()
+        self._init_file_processor()
 
     def _load_config(self) -> Dict:
         """Load configuration from config.json or environment variables"""
@@ -84,6 +115,58 @@ class ChatState:
             config["anthropic"]["api_key"] = env_api_key
 
         return config
+
+    def _init_database(self):
+        """Initialize database connection and repositories"""
+        self.db_manager = None
+        self.chat_repo = None
+        self.file_repo = None
+        self.host_repo = None
+        self.db_enabled = False
+
+        if not DATABASE_AVAILABLE:
+            logger.warning("Database module not available - using in-memory storage")
+            return
+
+        try:
+            self.db_manager = DatabaseManager()
+
+            # Try to initialize connection pool
+            if self.db_manager.initialize_sync_pool():
+                # Create tables if they don't exist
+                self.db_manager.create_tables()
+
+                # Initialize repositories
+                self.chat_repo = ChatRepository(self.db_manager)
+                self.file_repo = FileRepository(self.db_manager)
+                self.host_repo = HostRepository(self.db_manager)
+                self.db_enabled = True
+
+                logger.info("Database initialized successfully")
+            else:
+                logger.warning("Database connection failed - using in-memory storage")
+
+        except Exception as e:
+            logger.error(f"Database initialization failed: {e}")
+            logger.info("Continuing with in-memory storage")
+
+    def _init_file_processor(self):
+        """Initialize file processor for uploads"""
+        self.file_processor = None
+
+        if not FILE_LOADER_AVAILABLE:
+            logger.warning("File loader module not available")
+            return
+
+        try:
+            upload_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
+            self.file_processor = FileProcessor(
+                upload_dir=upload_dir,
+                db_manager=self.db_manager if self.db_enabled else None
+            )
+            logger.info(f"File processor initialized. Upload dir: {upload_dir}")
+        except Exception as e:
+            logger.error(f"File processor initialization failed: {e}")
 
     def _init_agents(self):
         """Initialize agents with Anthropic Claude"""
@@ -120,7 +203,53 @@ class ChatState:
         """Get or create a conversation for a session"""
         if session_id not in self.conversations:
             self.conversations[session_id] = []
+            # Load from database if available
+            if self.db_enabled and self.chat_repo:
+                try:
+                    db_history = self.chat_repo.get_session_history(session_id, limit=100)
+                    for msg in db_history:
+                        self.conversations[session_id].append({
+                            "role": msg["role"],
+                            "content": msg["message"],
+                            "agent_id": msg.get("agent_id"),
+                            "timestamp": msg.get("created_at")
+                        })
+                except Exception as e:
+                    logger.error(f"Failed to load conversation from database: {e}")
         return self.conversations[session_id]
+
+    def save_message(self, session_id: str, role: str, content: str,
+                     agent_id: Optional[str] = None, tokens: int = 0) -> None:
+        """Save a message to database if enabled"""
+        if self.db_enabled and self.chat_repo:
+            try:
+                self.chat_repo.save_message(
+                    session_id=session_id,
+                    role=role,
+                    message=content,
+                    agent_id=agent_id,
+                    tokens_used=tokens
+                )
+            except Exception as e:
+                logger.error(f"Failed to save message to database: {e}")
+
+    def log_host_action(self, hostname: str, action: str, status: str,
+                        ip_address: Optional[str] = None,
+                        user_id: Optional[str] = None,
+                        details: Optional[Dict] = None) -> None:
+        """Log a host action to database if enabled"""
+        if self.db_enabled and self.host_repo:
+            try:
+                self.host_repo.log_action(
+                    hostname=hostname,
+                    action=action,
+                    status=status,
+                    ip_address=ip_address,
+                    user_id=user_id,
+                    details=details
+                )
+            except Exception as e:
+                logger.error(f"Failed to log host action: {e}")
 
 
 # Initialize state
@@ -187,12 +316,31 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     model = getattr(state, 'model', state.config.get('anthropic', {}).get('model', 'unknown'))
-    return {
+
+    health_status = {
         "status": "healthy",
         "version": "1.0.0",
         "agents_loaded": len(state.agent_instances),
-        "model": model
+        "model": model,
+        "database": {
+            "enabled": state.db_enabled,
+            "status": "connected" if state.db_enabled else "not configured"
+        },
+        "file_processor": {
+            "enabled": state.file_processor is not None,
+            "status": "ready" if state.file_processor else "not available"
+        }
     }
+
+    # Check database health if enabled
+    if state.db_enabled and state.db_manager:
+        try:
+            db_health = state.db_manager.health_check()
+            health_status["database"]["status"] = db_health.get("status", "unknown")
+        except Exception:
+            health_status["database"]["status"] = "error"
+
+    return health_status
 
 
 @app.get("/api/agents", response_model=List[AgentInfo])
@@ -253,14 +401,29 @@ async def chat(message: ChatMessage):
         "timestamp": datetime.now().isoformat()
     })
 
+    # Save user message to database
+    state.save_message(message.session_id, "user", message.message, agent_id)
+
+    # Get file context if available
+    file_context = ""
+    if state.file_processor:
+        file_context = state.file_processor.get_context_for_chat(
+            message.session_id, max_files=3
+        )
+
     # Generate response
+    tokens_used = 0
     if agent_id in state.agent_instances and hasattr(state, 'anthropic_client'):
         try:
             agent_data = state.agent_instances[agent_id]
             history = state.agent_histories.get(agent_id, [])
 
-            # Add user message to history
-            history.append({"role": "user", "content": message.message})
+            # Add user message to history (include file context if available)
+            user_content = message.message
+            if file_context:
+                user_content = f"{file_context}\n\nUser Question: {message.message}"
+
+            history.append({"role": "user", "content": user_content})
 
             # Call Anthropic API
             response = state.anthropic_client.messages.create(
@@ -270,6 +433,10 @@ async def chat(message: ChatMessage):
                 messages=history
             )
             response_text = response.content[0].text
+
+            # Track token usage
+            if hasattr(response, 'usage'):
+                tokens_used = response.usage.input_tokens + response.usage.output_tokens
 
             # Add assistant response to history
             history.append({"role": "assistant", "content": response_text})
@@ -288,6 +455,9 @@ async def chat(message: ChatMessage):
         "content": response_text,
         "timestamp": datetime.now().isoformat()
     })
+
+    # Save assistant response to database
+    state.save_message(message.session_id, "assistant", response_text, agent_id, tokens_used)
 
     return ChatResponse(
         response=response_text,
@@ -314,7 +484,296 @@ async def clear_conversation(session_id: str):
         if hasattr(state, 'agent_histories'):
             for agent_id in state.agent_histories:
                 state.agent_histories[agent_id] = []
+    # Also clear from database if enabled
+    if state.db_enabled and state.chat_repo:
+        state.chat_repo.delete_session(session_id)
     return {"status": "cleared", "session_id": session_id}
+
+
+# ================================================================================
+# FILE UPLOAD ENDPOINTS
+# ================================================================================
+
+@app.post("/api/files/upload")
+async def upload_file(
+    file: UploadFile = File(...),
+    session_id: str = Form(default="default")
+):
+    """
+    Upload a file for processing.
+    Supports PDF, text files, and images.
+    """
+    if not state.file_processor:
+        raise HTTPException(
+            status_code=503,
+            detail="File processing is not available. Install required dependencies."
+        )
+
+    try:
+        # Read file content
+        content = await file.read()
+
+        # Process the file
+        result = await state.file_processor.process_file(
+            file_content=content,
+            original_filename=file.filename,
+            mime_type=file.content_type,
+            session_id=session_id
+        )
+
+        if result["success"]:
+            return {
+                "status": "success",
+                "file_id": result.get("file_id"),
+                "filename": result["original_filename"],
+                "file_type": result["file_type"],
+                "extracted_text_preview": (
+                    result.get("extracted_text", "")[:500] + "..."
+                    if result.get("extracted_text") and len(result.get("extracted_text", "")) > 500
+                    else result.get("extracted_text", "")
+                ),
+                "metadata": result["metadata"]
+            }
+        else:
+            raise HTTPException(status_code=400, detail=result.get("error", "Processing failed"))
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"File upload failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/files/{file_id}")
+async def get_file(file_id: int):
+    """Get file details and extracted content by ID."""
+    if not state.file_processor:
+        raise HTTPException(status_code=503, detail="File processing not available")
+
+    result = state.file_processor.get_file_content(file_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return result
+
+
+@app.get("/api/files/session/{session_id}")
+async def get_session_files(
+    session_id: str,
+    file_type: Optional[str] = Query(None, description="Filter by file type")
+):
+    """Get all files uploaded for a session."""
+    if not state.file_processor:
+        return []
+
+    return state.file_processor.get_session_files(session_id, file_type)
+
+
+@app.get("/api/files/search")
+async def search_files(
+    q: str = Query(..., description="Search query"),
+    file_type: Optional[str] = Query(None, description="Filter by file type"),
+    limit: int = Query(50, le=100)
+):
+    """Search files by content."""
+    if not state.file_processor:
+        return []
+
+    return state.file_processor.search_files(q, file_type, limit)
+
+
+@app.delete("/api/files/{file_id}")
+async def delete_file(file_id: int):
+    """Delete a file record."""
+    if not state.file_processor:
+        raise HTTPException(status_code=503, detail="File processing not available")
+
+    success = state.file_processor.delete_file(file_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="File not found or could not be deleted")
+
+    return {"status": "deleted", "file_id": file_id}
+
+
+@app.get("/api/files/stats")
+async def get_file_stats():
+    """Get file processing statistics."""
+    if not state.file_processor:
+        return {"error": "File processing not available"}
+
+    return state.file_processor.get_stats()
+
+
+# ================================================================================
+# HOST HISTORY ENDPOINTS
+# ================================================================================
+
+@app.post("/api/hosts/log")
+async def log_host_action(
+    hostname: str = Form(...),
+    action: str = Form(...),
+    status: str = Form(...),
+    ip_address: Optional[str] = Form(None),
+    user_id: Optional[str] = Form(None),
+    details: Optional[str] = Form(None)
+):
+    """Log a host action."""
+    if not state.db_enabled or not state.host_repo:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    try:
+        details_dict = json.loads(details) if details else None
+    except json.JSONDecodeError:
+        details_dict = {"raw": details}
+
+    record_id = state.host_repo.log_action(
+        hostname=hostname,
+        action=action,
+        status=status,
+        ip_address=ip_address,
+        user_id=user_id,
+        details=details_dict
+    )
+
+    if record_id:
+        return {"status": "logged", "id": record_id}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to log action")
+
+
+@app.get("/api/hosts/{hostname}/history")
+async def get_host_history(
+    hostname: str,
+    limit: int = Query(100, le=500),
+    action: Optional[str] = Query(None)
+):
+    """Get activity history for a specific host."""
+    if not state.db_enabled or not state.host_repo:
+        return []
+
+    return state.host_repo.get_host_history(hostname, limit=limit, action=action)
+
+
+@app.get("/api/hosts/{hostname}/stats")
+async def get_host_stats(hostname: str):
+    """Get statistics for a specific host."""
+    if not state.db_enabled or not state.host_repo:
+        return {}
+
+    return state.host_repo.get_host_stats(hostname)
+
+
+@app.get("/api/hosts")
+async def get_all_hosts(limit: int = Query(100, le=1000)):
+    """Get list of all known hosts."""
+    if not state.db_enabled or not state.host_repo:
+        return []
+
+    return state.host_repo.get_all_hosts(limit)
+
+
+@app.get("/api/hosts/activity/recent")
+async def get_recent_activity(
+    hours: int = Query(24, le=168),
+    action: Optional[str] = Query(None)
+):
+    """Get recent activity across all hosts."""
+    if not state.db_enabled or not state.host_repo:
+        return []
+
+    return state.host_repo.get_recent_activity(hours=hours, action=action)
+
+
+@app.get("/api/hosts/activity/summary")
+async def get_activity_summary(hours: int = Query(24, le=168)):
+    """Get summary of host activity."""
+    if not state.db_enabled or not state.host_repo:
+        return {}
+
+    return state.host_repo.get_activity_summary(hours)
+
+
+@app.get("/api/hosts/activity/failed")
+async def get_failed_actions(hours: int = Query(24, le=168)):
+    """Get recent failed actions."""
+    if not state.db_enabled or not state.host_repo:
+        return []
+
+    return state.host_repo.get_failed_actions(hours)
+
+
+# ================================================================================
+# DATABASE STATUS ENDPOINTS
+# ================================================================================
+
+@app.get("/api/database/health")
+async def database_health():
+    """Check database connectivity."""
+    if not state.db_enabled or not state.db_manager:
+        return {
+            "status": "unavailable",
+            "message": "Database not configured or connection failed"
+        }
+
+    return state.db_manager.health_check()
+
+
+@app.get("/api/database/stats")
+async def database_stats():
+    """Get database statistics."""
+    if not state.db_enabled:
+        return {"status": "unavailable"}
+
+    stats = {
+        "database_enabled": state.db_enabled,
+        "file_processor_enabled": state.file_processor is not None
+    }
+
+    if state.chat_repo:
+        sessions = state.chat_repo.get_all_sessions(limit=1000)
+        stats["chat"] = {
+            "total_sessions": len(sessions),
+            "total_messages": sum(s.get("message_count", 0) for s in sessions)
+        }
+
+    if state.file_repo:
+        stats["files"] = state.file_repo.get_file_stats()
+
+    if state.host_repo:
+        stats["hosts"] = state.host_repo.get_activity_summary(24)
+
+    return stats
+
+
+@app.get("/api/sessions")
+async def list_sessions(
+    limit: int = Query(100, le=500),
+    active_hours: Optional[int] = Query(None, description="Only sessions active within hours")
+):
+    """Get list of all chat sessions."""
+    if not state.db_enabled or not state.chat_repo:
+        # Return in-memory sessions
+        return [
+            {"session_id": sid, "message_count": len(msgs)}
+            for sid, msgs in state.conversations.items()
+        ]
+
+    return state.chat_repo.get_all_sessions(limit, active_hours)
+
+
+@app.get("/api/sessions/{session_id}/stats")
+async def get_session_stats(session_id: str):
+    """Get statistics for a specific session."""
+    if not state.db_enabled or not state.chat_repo:
+        conversation = state.get_or_create_conversation(session_id)
+        return {
+            "session_id": session_id,
+            "total_messages": len(conversation),
+            "user_messages": sum(1 for m in conversation if m.get("role") == "user"),
+            "assistant_messages": sum(1 for m in conversation if m.get("role") == "assistant")
+        }
+
+    return state.chat_repo.get_session_stats(session_id)
 
 
 # WebSocket endpoint
