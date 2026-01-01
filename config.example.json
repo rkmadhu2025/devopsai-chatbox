@@ -1,13 +1,152 @@
 {
   "api_key": "your-openai-api-key-here",
-  "model": "gpt-3.5-turbo",
+  "model": "gpt-4-turbo",
   "max_tokens": 4096,
   "temperature": 0.7,
+
+  "response_style": {
+    "include_explanation": true,
+    "include_examples": true,
+    "include_references": true,
+    "include_configuration": true,
+    "include_best_practices": true,
+    "code_formatting": "markdown",
+    "response_template": "structured",
+    "use_emojis": true,
+    "max_code_block_lines": 50
+  },
   "context_window": {
     "gpt-3.5-turbo": 4096,
     "gpt-3.5-turbo-16k": 16384,
     "gpt-4": 8192,
     "gpt-4-32k": 32768,
     "gpt-4-turbo": 128000
+  },
+  "integrations": {
+    "prometheus": {
+      "enabled": false,
+      "url": "http://localhost:9090",
+      "username": "",
+      "password": ""
+    },
+    "grafana": {
+      "enabled": false,
+      "url": "http://localhost:3000",
+      "api_key": ""
+    },
+    "alertmanager": {
+      "enabled": false,
+      "url": "http://localhost:9093"
+    },
+    "loki": {
+      "enabled": false,
+      "url": "http://localhost:3100"
+    },
+    "kubernetes": {
+      "enabled": false,
+      "config_file": null,
+      "context": null,
+      "in_cluster": false
+    },
+    "jenkins": {
+      "enabled": false,
+      "url": "http://localhost:8080",
+      "username": "",
+      "api_token": ""
+    },
+    "argocd": {
+      "enabled": false,
+      "url": "http://localhost:8080",
+      "token": ""
+    },
+    "vault": {
+      "enabled": false,
+      "url": "http://localhost:8200",
+      "token": ""
+    },
+    "harbor": {
+      "enabled": false,
+      "url": "http://localhost:80",
+      "username": "",
+      "password": ""
+    },
+    "elasticsearch": {
+      "enabled": false,
+      "url": "http://localhost:9200",
+      "username": "",
+      "password": ""
+    },
+    "email": {
+      "enabled": false,
+      "provider": "smtp",
+      "smtp_host": "smtp.gmail.com",
+      "smtp_port": 587,
+      "smtp_username": "",
+      "smtp_password": "",
+      "smtp_use_tls": true,
+      "sendgrid_api_key": "",
+      "ses_region": "",
+      "default_from": "devops@example.com"
+    },
+    "slack": {
+      "enabled": false,
+      "webhook_url": "",
+      "bot_token": ""
+    },
+    "teams": {
+      "enabled": false,
+      "webhook_url": ""
+    },
+    "pagerduty": {
+      "enabled": false,
+      "api_key": "",
+      "integration_key": "",
+      "default_from_email": ""
+    },
+    "redmine": {
+      "enabled": false,
+      "url": "http://localhost:3000",
+      "api_key": ""
+    },
+    "neo4j": {
+      "enabled": false,
+      "url": "bolt://localhost:7687",
+      "username": "neo4j",
+      "password": ""
+    },
+    "redis": {
+      "enabled": false,
+      "url": "redis://localhost:6379"
+    },
+    "rabbitmq": {
+      "enabled": false,
+      "url": "amqp://localhost:5672",
+      "management_url": "http://localhost:15672",
+      "username": "guest",
+      "password": "guest"
+    },
+    "mysql": {
+      "enabled": false,
+      "host": "localhost",
+      "port": 3306,
+      "username": "",
+      "password": "",
+      "database": ""
+    },
+    "postgresql": {
+      "enabled": false,
+      "host": "localhost",
+      "port": 5432,
+      "username": "",
+      "password": "",
+      "database": ""
+    }
+  },
+  "chatbot": {
+    "host": "0.0.0.0",
+    "port": 8000,
+    "debug": false,
+    "session_timeout": 3600,
+    "max_history": 100
   }
 }

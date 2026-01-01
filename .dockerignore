@@ -1,0 +1,66 @@
+# =============================================================================
+# DOCKERIGNORE - DevOps Multi-Agent Chatbot
+# =============================================================================
+
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.eggs
+*.egg-info
+.installed.cfg
+*.egg
+.mypy_cache
+.pytest_cache
+.coverage
+htmlcov
+
+# Virtual environments
+venv
+env
+.venv
+.env
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist
+build
+*.log
+
+# Kubernetes
+k8s
+
+# Documentation
+docs
+*.md
+!README.md
+
+# Tests
+tests
+test_*.py
+*_test.py
+
+# Local config (may contain secrets)
+config.json
+.claude
+
+# Temp files
+*.tmp
+*.bak
+nul

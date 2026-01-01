@@ -1,0 +1,183 @@
+# =============================================================================
+# KUBERNETES DEPLOYMENT - DevOps Multi-Agent Chatbot
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: devops-chatbot
+  namespace: default
+  labels:
+    app: devops-chatbot
+    version: v1.0.0
+    component: chatbot
+    managed-by: kubectl
+  annotations:
+    description: "DevOps Multi-Agent Chatbot with 42+ specialized agents"
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: devops-chatbot
+  template:
+    metadata:
+      labels:
+        app: devops-chatbot
+        version: v1.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Security context for the pod
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+
+      # Graceful termination
+      terminationGracePeriodSeconds: 30
+
+      containers:
+      - name: chatbot
+        image: registry.gitlab.com/rajkumarmadhu2024/devops-ai-chatbox:latest
+        imagePullPolicy: Always
+
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+
+        # Environment variables
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        - name: APP_HOST
+          value: "0.0.0.0"
+        - name: APP_PORT
+          value: "8000"
+        # API Key from secret
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: chatbot-secrets
+              key: openai-api-key
+              optional: true
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: chatbot-secrets
+              key: anthropic-api-key
+              optional: true
+
+        # Resource management
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+
+        # Security context for container
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop:
+              - ALL
+
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+
+        startupProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 30
+
+        # Volume mounts (optional - for external config)
+        volumeMounts:
+        - name: config-volume
+          mountPath: /app/config
+          readOnly: true
+
+      volumes:
+      - name: config-volume
+        configMap:
+          name: chatbot-config
+          optional: true
+
+      # Pod scheduling
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: devops-chatbot
+              topologyKey: kubernetes.io/hostname
+
+---
+# =============================================================================
+# CONFIGMAP - Application Configuration (Optional)
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: chatbot-config
+  namespace: default
+  labels:
+    app: devops-chatbot
+data:
+  config.json: |
+    {
+      "anthropic": {
+        "api_key": "${ANTHROPIC_API_KEY}",
+        "model": "claude-opus-4-5-20251101"
+      },
+      "max_tokens": 4096,
+      "temperature": 0.7,
+      "response_style": {
+        "include_explanation": true,
+        "include_examples": true,
+        "include_references": true,
+        "include_configuration": true,
+        "include_best_practices": true,
+        "code_formatting": "markdown",
+        "use_emojis": true
+      },
+      "chatbot": {
+        "host": "0.0.0.0",
+        "port": 8000,
+        "debug": false,
+        "session_timeout": 3600,
+        "max_history": 100
+      }
+    }
